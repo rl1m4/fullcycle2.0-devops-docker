@@ -1,0 +1,421 @@
+# Docker
+
+`docker ps`
+
+`docker ps -a`
+
+`docker run -it --rm ubuntu:latest bash` : deletes the container after you finish interative mode
+
+### Publicando portas com nginx
+
+`docker run nginx`
+
+- it runs in an entrypoint and port 80 opened → webserver
+- container roda o nginx com a porta 80 ativa mas n significa q posso acessar essa porta com o meu host
+- se tentar acessar ubuntu cm a porta 80 do nginx → esse conseguiria pq esta na rede docker
+- caso queira acessar a porta 80 do nginx precisa usar o mecanismo: apontar/redirecionar porta → binding
+- `docker run -p nginx`: -p a porta que quer usar
+- `docker run -p 8080:80 nginx` :  qd acessar a porta 8080 da minha maquina, o docker redireciona p porta 80 do container do nginx
+- `docker run -d -p 8080:80 nginx` -d = detached (desatacha terminal do nginx - n trava o terminal)
+
+### Removendo containers
+
+- `docker stop id_container`
+- `docker start id_container`
+- `docker rm id_container`  ou name
+- `docker rm id_container -f`  forca p remover mesmo q esteja rodando
+
+### Acessando e alterando arquivos de um container
+
+- `docker run -d --name nginx_container nginx` : dar nome pro container
+- `docker run --name nginx_container -d -p 8080:80 nginx`
+
+se eu quiser entrar no container
+
+- `docker exec nginx_container ls` : exec - executa comando dentro do docker - ira listar os arquivos
+- `docker exec -it nginx_container bash` : executa bash dentro do container no modo interativo c bash aberto
+- `cd /usr/share/nginx/html/` inside nginx default folder - lista o index html rodando na porta 8080
+- `apt-get update`
+- `apt-get install vim` e altera o index html
+- a imagem eh imutavel - a gente n altera a imagem... altera no container e qd kill ele, perde
+
+### Iniciando com **bind mounts**
+
+- Voce monta um volume q ta no computador p dentro do container - se o container morrer, o arquivo ainda esta dentro do computador
+- colocar um arquivo no meu container - se matar o container o arquivo vai prevalecer
+- `docker run -d --name nginx_container -p 8080:80 -v` : -v monta um volume e nele coloco endereco do computador
+- `docker run -d --name nginx_container -p 8080:80 -v "$(pwd)":/usr/share/nginx/html nginx`   : significa montar volume c a pasta do meu computador p dentro do nginx no container / se matar o container mas o arquivo index fica la
+- ambiente de desenvolvimento a gente mantem a infraestrutura com o java por exemplo mas o arquivo que trabalhamos no projeto ta no computador e mapeamos p docker - bind
+- docker -v eh um comando antigo do docker, hoje em dia se utiliza o - - mount
+- `docker run -d --name nginx_container -p 8080:80 --mount type=bind,source="$(pwd)",target=/usr/share/nginx/html nginx`
+- - v e - - mount : diferenca maior se a pasta n existir, o -v cria a pasta mesmo q ela n exista e o mount throw um erro que a pasta n existe
+
+### Trabalhando com volumes (diferente de bind mount)
+
+- volume é especifico e acaba criando algo no docker
+- `docker volume`
+- `docker volume ls`  volumes tem drivers (local e outros drivers p gravar dados de forma remota) e nomes
+- `docker volume create meuvolume` : cria volume
+- `docker volume ls`  lista os volumes
+- `docker volume inspect meuvolume` : da detalhes do volume / driver q eh local / mountpoint onde tenho os arquivos dentro do meu computador - posso mapear esse volume p dentro de uma pasta do container
+
+```kotlin
+❯ docker volume inspect meuvolume
+[
+    {
+        "CreatedAt": "2022-04-15T10:56:10Z",
+        "Driver": "local",
+        "Labels": {},
+        "Mountpoint": "/var/lib/docker/volumes/meuvolume/_data",
+        "Name": "meuvolume",
+        "Options": {},
+        "Scope": "local"
+    }
+]
+```
+
+- `docker run --name nginx_container -d --mount type=volume,source=meuvolume,target=/app nginx`
+- `docker exec -it nginx_container bash` - agora tenho uma pasta app que sao com os dados q estou montando no meu volume
+    - cria um touch arquivo oi dentro do app como exemplo
+- `docker run --name nginx_container2 -d --mount type=volume,source=meuvolume,target=/app nginx`  agora se crio outro container eu terei dentro dele o arquivo oi pq estou compartilhando o volume com 2 containers
+    - se criar arquivo aqui agora e voltar p outro container eu terei o arquivo la tambem
+- tb podemos usar o -v p montar os volumes
+- `docker volume prune` : tudo q n ta sendo utilizado pode dar prune p matara td q ta ali dentro e limpar tudo e mostrar qt espaco liberado
+
+## TRABALHANDO COM IMAGENS
+
+### Imagens e DockerHub
+
+- tudo q estamos rodando sao imagens: postgres, ubuntu, nginx, etc
+- as imagens ficam no dockerhub: container registry do docker - todas as imagens docker q estamos chamando com versao/tags
+- `docker pull imagem_name` : qd simplesmente quer baixar uma imagem p computador a partir do docker hub
+- podemos ter nosso proprio container registry (exemplo amazon tem seu proprio e grava as imagens la e sao privadas) etc... google cloud platform, azure, etc.... ou container registry q vc quiser criar
+- `docker images` lista as imagens do computador
+- `docker rmi ubuntu:latest`
+
+### Criando Imagem com Dockerfile
+
+- Dockerfile: receita, passo a passo do sistema
+- *`FROM* nginx:latest` : cria sempre a partir de uma imagem existente p depois rodar commandos nela (exemplo instalar o apt-get update, vim, etc)
+- *`RUN* apt-get update && apt-get install vim -y`
+- `docker build -t rl1m4/nginx-com-vim:latest .` : vai buildar a imagem, rodar o comando c a tag do meu usuario do docker hub e . p falar no diretorio atual q esta o dockerfile
+- `docker images` : agora pode verificar a imagem criada (container n subiu, somente a imagem)
+- `docker run -it rl1m4/nginx-com-vim bash` roda o container com a imagem q acabou de criar
+
+### ****Avançando com Dockerfile****
+
+- *`WORKDIR* /app` workdir eh o diretorio q vai trabalhar dentro do container. qd comecar usar o docker, cria a pasta dentro do container e pode usar a pasta app. posso criar arquivo na pasta e rodar o q quiser com o RUN
+- *`COPY* html /usr/share/nginx`  copia o q ta dentro da pasta local do computador html p dentro da pasta nginx dentro do container: copiou o html p dentro do nginx c meu index.html diferente do default do nginx
+
+### ENTRYPOINT x CMD
+
+- dentro do Dockerfile depois de rodar e copiar agora queremos executar algo
+- *`CMD* [ "echo", "Hello World" ]` : cmd p executar printar hello world
+- `docker build -t rl1m4/hello .` : buildou a imagem rl1ma/hello
+- `docker rm $(docker ps -a -q) -f` : pega tds container ativos e n ativos e remove
+- `docker run --rm rl1m4/hello echo "hi”` : substitui o comando CMD echo dentro do Dockerfile pelo parametro q estamos passando p rodar
+- entrypoint: comando fixo e comando variavel (substituido)
+    
+    *`ENTRYPOINT* [ "echo", "Hello" ]`
+    
+    *`CMD* [ "echo", "World" ]` : cmd depois do entrypoint e se eu n tiver nada no entrypoint o cmd somente sera executado
+    
+
+### Docker ENTRYPOINT Exec
+
+- exemplo Dockerfile do nginx github:
+- ENV: pq ter variaveis de ambiente dentro...
+- copy o docker entrypoint da maquina local p rodar comando dentro do docker: exemplo qd rodamos docker run nginx c bash (o bash da override no CMD) e o EXPOSE eh p expor a porta 80 p esse container e se outros containers na mesma rede precisarem se comunicar c ele
+
+```kotlin
+COPY docker-entrypoint.sh /
+ENTRYPOINT ["docker-entrypoint.sh"]
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+dentro da imagem do docker podemos ver o [docker-entrypoint.sh](http://docker-entrypoint.sh) la dentro (comandos p subir e validacoes do nginx) exec `"$@”` significa q pode substituir o comando
+
+`docker run —rm -it nginx bash`
+
+`ls`  → ve q tem o [docker-entrypoint.sh](http://docker-entrypoint.sh) la dentro e da um cat nele ate o final do arquivo p ver o exec "$@" p receber argumento
+
+`./docker.entrypoint.sh echo "hello”`  roda isso dentro da imagem docker do nginx vai printar hello por cause do `"$@”` no final do arquivo shell
+
+### Publicando imagem no DockerHub
+
+- se quiser que outra pessoa baixe a nossa imagem no computador, precisamos subir p docker hub
+- `docker login`
+- `docker logout`
+- `docker push rl1m4/nginx-fullcycle`
+- [https://hub.docker.com/repository/docker/rl1m4/nginx-fullcycle](https://hub.docker.com/repository/docker/rl1m4/nginx-fullcycle)
+- posso agora dar o push da minha imagem - posso pagar e ter imagens privadas do sistema la dentro - docker depois de um tempo remove se ng der pull e vc perde a imagem
+
+## NETWORKS
+
+### Tipos de Networks
+
+- docker possui rede interna rodando dentro dele
+- fazer container se comunicar com outros: preciso um app java se comunicar com o postgres: nao coloca tudo no mesmo container. cria um container p postgres e um p java
+- p aplicacao conectar c o postgres precisa fazer c q eles estejam na mesma rede e por isso recursos de network
+- tipos importantes de network
+- `bridge` qd cria uma network e n informa nada, ela eh uma network do tipo bridge. normalmente qd fazemos c q 1 container se comunique c o outro
+- `host`  esse network mescla a network do docker c a network do host do docker. exemplo minha maquina eh o host do docker, estou rodando uma aplicacao na porta 8080. qd network eh tipo host e subo container na mesma network, o container nessa network vai poder acessar a maquina (o proprio host). o container e a maquina se comunicam pela porta sem expor. minha maquina rodando porta 80 e o container se comunica na porta 80. e se o container porta 3000, a minha maquina pode acessar pq eles estao na mesma rede do computador
+- `overlay` varios dockers em computadores diferentes e precisa fazer c q eles se comuniquem parecendo q estao na mesma rede. caso de uso: docker swarm - cria cluster de varios docker rodando p vc conseguir escalar sua aplicacao rodando docker. 1 container p aguentar varios acessos: varias maquinas rodando docker em swarm mode e eles precisam estar em overlay network
+- `maclan` macadress setar no container e parece network plugado na rede
+- `none`  n vai ter nenhuma rede, o container roda de forma isolada
+
+### Trabalhando com Bridge
+
+- `docker network ls`
+- `docker network prune`
+- `docker run -d -it --name ubuntu1 bash`
+- `docker run -d -it --name ubuntu2 bash`  (-d deu detached)
+- opcao dar docker exec e rodar bash ou rodar o attach
+- `docker network inspect bridge`
+    - dentro do containers tenho ubuntu1 e ubuntu2 com os seus ips
+    - dessa forma estamos dentro da mesma network bridge nas duas maquinas
+- `docker attach ubuntu1` (entra no bash do ubuntu1)
+    - `ip addr show`
+    - `ping 172.17.0.4` consigo dentro do ubuntu1 pingar o ip do ubuntu2
+    - `ping ubuntu2` nao funciona - nao consegue resolver
+- criar uma nova rede
+- `docker network create --driver bridge minharede`
+    - `docker network create minharede` vai criar default como bridge
+- `docker run -d -it —-name ubuntu1 —-network minharede bash`
+- `docker run -d -it —-name ubuntu2 —-network minharede bash`
+    - cria ubuntu1 e ubuntu2 na mesma rede
+- `docker exec -it ubuntu1 bash`
+    - agora consigo pingar pois estao na mesma rede: `docker ubuntu2`
+- `docker run -d -it --name ubuntu3` : cria ubuntu3 fora da minha rede e n consegue pingar pelo nome
+- conectar um container em uma rede:
+    - `docker network connect minharede ubuntu3`
+    - `docker exec -it ubuntu3 bash`
+    - `ping ubuntu1` : agora o ubuntu3 esta na mesma
+- `docker network inspect minharede` : n estao dentro da bridge estao na minha rede todos
+
+### Trabalhando com Host
+
+- mais utilizado o bridge
+- no macOs a network Host nao funciona. o docker foi feito p rodar no linux. qd rodamos o docker desktop mac - ele emula uma maquina virtual p falar c o docker - o docker host eh uma maquina virtual, n a propria maquina. entao qd fizermos o docker no formato host ele no final junta os containers docker com a rede da minha maquina virtual mas nao com a do macbook por isso n funciona. com o windows wsl2 ou linux dai funciona.
+- `docker run --rm -d --name nginx --network host nginx`
+    - qd acessar o [localhost](http://localhost) ja deveria funciona na porta 80 pq ele junta a rede do docker host c a rede do meu container (como mac o nosso host n eh o container, n temos o resulta
+- `docker network inspect host`
+
+### Container acessando nossa maquina
+
+- as vezes vamos estar usando o container docker mas la do container precisamos acessar alguma porta, recurso do docker host
+- exemplo: subir server PHP no html normal da maquina
+- se precisar o docker p acessar essa porta 8000 da maquina p pegar o server local - o container precisa acessar o [localhost](http://localhost) da maquina
+- `docker run --rm -it --name ubuntu ubuntu bash`
+- `apt-get update`
+- `apt-get install curl -y`
+- [localhost](http://localhost) agora eh o proprio container
+- `curl[http://host.docker.internal:8000](http://host.docker.internal:8000)` : server da maquina - o container acessando a maquina c o server rodando na porta 8000
+
+## PRATICA
+
+### Instalando framework em um container
+
+- usando Laravel
+- escolhe a imagem no docker hub: PHP, Apache, Java, Maven, Gradle, etc
+- instalar o server, ver os passos e depois colocar dentro do `Dockerfile`
+    - `docker run -it --name php php:7.4-cli bash`
+    - `apt` : ver detalhes da imagem
+    - `apt-get update` : isso vai p Dockerfile
+    - `mkdir /var/www` pasta ja existe entao no Dockerfile so add: `WORKDIE /var/www`
+    - instalar o Laravel no php 7.4 `php -v` via composer
+    - `https://getcomposer.org/download/`
+    - ls lista: composer-setup.php `composer.phar` html
+    - `php -r "unlink('composer-setup.php');"` : remove o setup.php
+    - `php composer.phar`
+    - `php composer.phar create-project --prefer-dist laravel/laravel laravel`
+    - `apt-get install libzip-dev -y`
+    - `docker-php-ext-install zip`
+    - `cd laravel` : continuar na proxima aula/video apos instalar o laravel
+
+### Ativando entrypoint e command
+
+- Criando o Dockerfile com os comandos de cima
+- deixar os processos rodando no final
+- `docker build -t rl1m4/laravel-fullcycle .`  gerar a imagem php com o laravel e tds comandos
+- criar o container agora baseado na imagem que criamos acima:
+    - `docker run --name laravel -p 8000:8000 rl1m4/laravel-fullcycle`
+    - se acessar o [localhost:8000](http://localhost:8000) nao funciona pq o laravel ta rodando server de desenvolvimento no 127.0.0.1 no container - estamos acessando de fora entao nao deixa funcionar. temos q liberar o acesso p qq host
+    - usar o `CMD` p liberar o host p dentro do `ENTRYPOINT`
+    - *`CMD*[ "--host=0.0.0.0" ]`  deixa la o cmd e se precisar alterar so passar o comando qd subir o container
+    - ver LOGS
+    - `docker logs laravel` : agora pode ver que o server ta expondo o host:
+        
+        Starting Laravel development server: [http://0.0.0.0:8000](http://0.0.0.0:8000/)
+        [Sun Apr 17 13:00:43 2022] PHP 7.4.28 Development Server ([http://0.0.0.0:8000](http://0.0.0.0:8000/)) started
+        
+    - substituir o comando, exemplo trabalhar c a porta 8001:
+    - `docker run --name laravel -d -p 8001:8001 rl1m4/laravel-fullcycle --host=0.0.0.0 --port=8001`
+    - `docker ps` pode ver a porta 8001 ou `docker logs laravel`
+
+### Criando aplicação Node.js sem o Node
+
+- `docker run --rm -it -v $(pwd)/:/usr/src/app -p 3000:3000 node:15 bash`
+- `/usr/src/app` → vazio
+- `touch hello` → cria o arquivo na maquina - `rm hello`
+- `npm init`
+- `npm install express --save`
+- cria arquivo index.js com express na porta 3000 e roda
+- `node index.js`
+- estamos rodando dentro do container direto - mas podemos gerar a imagem dessa aplicacao
+
+### Gerando imagem da aplicacao Node.js
+
+- cria o Dockerfile dentro da pasta node
+- ao inves de rodar os comandos de instalar node, vou peegar os arquivos e jogar dentro da imagem
+- `COPY . .` copia todos arquivos da pasta onde da o build e joga dentro do app que eh o diretorio q estamos trabalhando
+- `EXPOSE 3000`
+- `CMD [ "node", "index.js" ]`
+- `docker build -t rl1m4/node-express .` : copiou td q estava dentro da pasta na minha maquina p dentro da imagem
+- `docker run -p 3000:3000 rl1ma/express` : ja tem o app rodando na porta 3000
+- qd usar o `COPY . .`  ou o `RUN .....todos os comandos`
+- tenha 2 Dockerfile: `Dockerfile` p desenvolvimento e `[Dockerfile.prod](http://Dockerfile.prod)` com o `COPY . .`
+    - no prod vc da build apenas copiando o q ta no desenvolvimento p prod:
+    - `docker build -t rl1m4/node-express . node/ -f node/Dockerfile.prod`  isso dentro da pasta node
+
+## Otimizando imagens
+
+### Otimização utilizando Multistage Building
+
+- imagem p producao `Dockerfile.prod`, mais enxuta, menor, mais rapido p baixar e menos vulnerabilidades
+- imagens baseadas no alpine linux: inxutas e compactas
+- nginx na frente como servidor de proxy reverso: toda requisicao bate no nginx e ele vai chamar o container php - php retorna p nginx e nginx retorna p user final
+- rodar php no modo fast cgi - nginx se conecta e manda requisicoes e retorna resultado
+- usar alpine linux p reduzir o tamanho da imagem: exemplo n tem apt-get no alpine linux: mas vamos usar o `multistage building`:
+    - fazer o processo em 1 ou mais etapas: estagio inicial que gera a imagem e o proximo estagio que otimiza a imagem
+- *`FROM*php:7.4-fpm-alpine` dentro do `Dockerfile.prod`
+- *`COPY* --from=builder /var/www/laravel .` pegar o build da imagem anterior e colocar na imagem sequente - 2 estagios de build da imagem
+- dar permissao p ww-data dos arquivos p usuario e www-data p gravar, escrever, etc
+- php escuta no `php fpm`
+- `docker build -t rl1m4/laravel:prod laravel -f laravel/Dockerfile.prod` : toda vez q mudar o Docker file name tem que falar o nome do arquivo que quer utilizar e ele esta dentro da pasta laravel nesse caso
+- o tamanho da imagem diminui
+    
+    ```kotlin
+    ❯ docker images | grep laravel    
+    rl1m4/laravel             prod      b20d7c7ebeb6   About a minute ago   140MB
+    rl1m4/laravel-fullcycle   latest    6cf67895e2ac   23 hours ago         552MB
+    ```
+    
+
+### Nginx como proxy reverso
+
+- todo chamada caira no servidor nginx e ele chamara o php e retornara o response
+- colocar as configuracoes do nginx em `nginx.conf`
+- vamos injetar o nginx.conf dentro do nginx prod dockerfile
+- *`RUN*rm /etc/nginx/conf.d/default.conf` remove o arquivo de configuracao default do nginx padrao e copia o nosso customizado
+- *`RUN*mkdir -p /var/www/public && touch /var/www/public/index.html` precisa criar um arquivo p poder fazer a chamada remota senao retorna 404
+- `docker build -t rl1m4/nginx:prod . -f Dockerfile.prod`
+- criar rede p colocar os containers: bridge
+- `docker network create laranet`
+- rodar os containers usando as imagens na mesma rede
+- `docker run -d --network laranet --name laravel rl1m4/laravel:prod` :container rodando c a porta 9000 exposta na rede container (n no computador)
+- rodar o container do nginx agora
+- `docker run -d --network laranet --name nginx -p 8080:80 rl1m4/nginx:prod` : agora cai no nginx que acessa o arquivo no php e retorna
+
+```kotlin
+❯ docker ps                                                               
+CONTAINER ID   IMAGE                COMMAND                  CREATED          STATUS          PORTS                  NAMES
+8740c2a8f575   rl1m4/nginx:prod     "nginx -g 'daemon of…"   46 seconds ago   Up 45 seconds   0.0.0.0:8080->80/tcp   nginx
+59f63e72a328   rl1m4/laravel:prod   "docker-php-entrypoi…"   10 minutes ago   Up 10 minutes   9000/tcp               laravel
+```
+
+- `docker logs nginx`
+
+## DOCKER COMPOSE
+
+### Iniciando com docker compose
+
+- o docker compose é uma ferramenta complementar ao docker que baseado no yaml pega todos os containers q quer subir e ele sobe de 1 vez em forma automática
+- `docker-compose.yaml` vai determinar quais servicos queremos subir (cada um em 1 container) lista eles em services
+- `docker-compose up` and `docker-compose down`
+
+### Buildando imagens com Docker-compose
+
+- nao precisa passar a imagem sempre
+- passa o build context indicando a pasta que o arquivo vai buildar exemplo: `./laravel` e o nome do arquivo `Dockerfile.prod`
+- vai gerar o build da imagem com o nome que colocamos em image
+- `docker-compose up -d` p detach
+- `docker-compose ps`
+- `docker-compose down`
+- `docker-compose up -d --build` rebuilda as imagens caso tenha mudado algo no arquivo
+
+### Criando bando de dados MySQL
+
+- `command` especifico do mysq
+- `restart` se o container cair ele sempre restarta
+- `tty` true se precisarmos conexao interativa precisamos habilitar o tty
+- `volumes:` tudo que ele for gravar na pasta `/var/lib/mysql` tb gravar na pasta local criada na maquina `mysql`
+    
+    ```kotlin
+    volumes:
+          - ./mysql:/var/lib/mysql
+    ```
+    
+- `environment` de ambiente p qd subir o container
+
+### Configurando app node com docker-compose
+
+- mesmo file adiciona o app, configura build, name, volume, network
+- `docker-compose up -d --build`
+- `docker exec -it app bash` : entrar na pasta do node
+- trabalho c node dentro do container sem ter ele instalado na maquina
+
+### Node vs MySQL
+
+- acessar banco mysql, criar tabela, ir na applicacao node e fazer um comando gravar os dados no DB
+- todos os dados do mysql estao na pasta mysql e os node js na pasta tb
+- `docker exec -it db bash`
+- `mysql -uroot -p` : digita a senha root
+- `show databases;`
+- `use nodedb;`
+- `create table people(id int not null auto_increment, name varchar(255), primary key(id));`
+- `desc people;`
+- `npm install mysql --save` : instala o mysql dentro do node app
+- `select * from people`
+
+### Dependencia entre containers
+
+- nem td entre docker sao flores, mts vezes tem a dependencia entre containers, so pode iniciar o seu container node qd o mysql estiver up. Se subir os dois juntos o mysql demora p bootar e o node se demorar pode matar o container.
+- Como fazer p q 1 container tenha 1 dependencia clara 1 do outro e eles esperem ficar prontos.
+- comando `depends_on`
+- meu container app depende do db: sobe primeiro o db e depois sobe o app, mas n significa que o app vai ficar esperando o mysql ficar pronto. Como esperar? diversas solucoes: scripts c comandos
+- `wait for it`  e `dockerize`
+- dockerize tem o comando p rodar no entrypoint dentro do app node
+    - consegue verificar se um container ta pronto
+- roda `dockerize` dentro do app folder
+- `dockerize --wait tcp://db:3306`
+
+```kotlin
+root@d4d335b6d7f9:/usr/src/app# dockerize --wait tcp://db:3306
+2022/04/18 14:36:23 Waiting for: tcp://db:3306
+2022/04/18 14:36:23 Connected to tcp://db:3306
+root@d4d335b6d7f9:/usr/src/app#
+```
+
+- `docker-compose stop db`
+
+```kotlin
+root@d4d335b6d7f9:/usr/src/app# dockerize --wait tcp://db:3306 -timeout 10s
+2022/04/18 14:37:49 Waiting for: tcp://db:3306
+2022/04/18 14:37:49 Problem with dial: dial tcp: lookup db on 127.0.0.11:53: no such host. Sleeping 1s
+2022/04/18 14:37:50 Problem with dial: dial tcp: lookup db on 127.0.0.11:53: no such host. Sleeping 1s
+2022/04/18 14:37:51 Problem with dial: dial tcp: lookup db on 127.0.0.11:53: no such host. Sleeping 1s
+```
+
+- `docker-compose start db`
+- `entrypoint: dockerize -wait tcp://db:3306 -timeout 20s[docker-entrypoint.sh](http://docker-entrypoint.sh/)` : adiciona no app o entrypoint padrao e da o dockerize wait
+- o log abaixo mostra q o app ficou esperando o mysql subir
+❯ docker logs app         
+2022/04/18 14:41:13 Waiting for: tcp://db:3306
+2022/04/18 14:41:13 Problem with dial: dial tcp 192.168.208.2:3306: connect: connection refused. Sleeping 1s
+2022/04/18 14:41:14 Connected to tcp://db:3306
+Welcome to Node.js v15.14.0.
+Type ".help" for more information.

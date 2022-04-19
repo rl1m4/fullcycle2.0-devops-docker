@@ -1,0 +1,33 @@
+version: '3'
+services:
+  sqs:
+    image: softwaremill/elasticmq
+    ports:
+      - 1100:1100
+    volumes:
+      - ./sqs/elasticmq.ini:/opt/docker/conf/application.ini
+      - ./sqs/elasticmq.conf:/opt/elasticmq.conf
+      - ./sqs/logback.xml:/opt/docker/conf/logback.xml
+  sfn:
+    image: amazon/aws-stepfunctions-local
+    environment:
+      SQS_ENDPOINT: http://sqs:1100
+      STEP_FUNCTIONS_ENDPOINT: http://sfn:1200
+    ports:
+      - 1200:1200
+  dynamodb:
+    image: amazon/dynamodb-local
+    ports:
+      - 1300:1300
+    volumes:
+      - ./.docker/dynamodb:/data
+    command: -jar DynamoDBLocal.jar -dbPath /data
+  s3:
+    image: minio/minio
+    environment:
+      MINIO_ACCESS_KEY: 12345678
+      MINIO_SECRET_KEY: 12345678
+    volumes:
+      - ./.docker/s3:/data
+    entrypoint: sh
+    command: -c 'mkdir -p /data/s3-data && /usr/bin/docker-entrypoint.sh server --compat /data'
